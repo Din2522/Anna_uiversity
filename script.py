@@ -12,9 +12,6 @@ warnings.filterwarnings("ignore")
 reader = easyocr.Reader(['en'], gpu=False)
 OCR_ALLOWLIST = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-# This portal's captchas are consistently 6 characters. Enforce it so a
-# mis-read (missing/extra char) is treated as invalid and retried instead
-# of being wasted on a doomed submission.
 EXPECTED_CAPTCHA_LEN = 6
 
 import os
@@ -33,18 +30,15 @@ def preprocess_captcha(image_bytes):
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-    # Upscale first — makes the shape filters below far more reliable
     img = cv2.resize(img, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
 
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     _, sat = cv2.threshold(hsv[:, :, 1], 35, 255, cv2.THRESH_BINARY)
 
-    # Lighter median blur (3 instead of 5) — still kills lone dot pixels
-    # without smearing/rounding thin letter strokes as much
+
     sat = cv2.medianBlur(sat, 3)
 
-    # Smaller rect kernel (not ellipse) for opening — rect preserves
-    # corners better, ellipse was rounding L's foot into an E-like curve
+
     open_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     opened = cv2.morphologyEx(sat, cv2.MORPH_OPEN, open_kernel)
 
@@ -78,7 +72,7 @@ def verify_login_success(page, timeout_ms=8000):
       index.php. If we're still on index.php with the 5 login boxes back,
       it's a guaranteed FAIL (wrong captcha/creds reloaded the form).
     """
-    # Let redirect / AJAX fully settle before checking anything
+
     try:
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
     except Exception:
@@ -86,11 +80,10 @@ def verify_login_success(page, timeout_ms=8000):
 
     current_url = page.url.lower()
 
-    # 1. Strongest signal — actually landed on students_corner (settled URL)
     if "students_corner" in current_url:
         return True
 
-    # 2. Still sitting on index.php with the 5 login boxes back = definitely FAILED
+
     try:
         still_on_login_form = page.locator("input[type='text']").count() >= 5
     except Exception:
@@ -99,7 +92,6 @@ def verify_login_success(page, timeout_ms=8000):
     if "index.php" in current_url and still_on_login_form:
         return False
 
-    # 3. ONLY trust text/frame markers if we've actually left index.php
     if "index.php" not in current_url:
         for frame in page.frames:
             try:
@@ -120,8 +112,6 @@ def automate_anna_univ_login():
         browser = p.chromium.launch(headless=False, slow_mo=300)
         page = browser.new_page()
 
-        # Catch any JS alert() the portal throws on wrong captcha/creds
-        # (prints the exact message so we can tighten checks further if needed)
         page.on("dialog", lambda d: (print(f"[ALERT] {d.message}"), d.accept()))
 
         print("Navigating to Anna University Portal...")
@@ -182,11 +172,7 @@ def automate_anna_univ_login():
             if len(captcha_text) != EXPECTED_CAPTCHA_LEN:
                 print(f"Captcha extraction invalid (expected {EXPECTED_CAPTCHA_LEN} chars). "
                       f"Reloading page for a fresh captcha... [saved to {DEBUG_DIR}/attempt_{attempt}_*.png]")
-                # IMPORTANT: clicking the captcha image does NOT fetch a new
-                # captcha on this portal (confirmed — same captcha repeated
-                # across 5 straight attempts). A full page reload does
-                # generate a fresh one every time, since we've seen a new
-                # captcha appear on every real form submission/reload.
+
                 page.reload(wait_until="domcontentloaded")
                 time.sleep(2)
                 attempt += 1
